@@ -1,64 +1,101 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 
 	"github.com/streadway/amqp"
 )
 
+const (
+	rabbitMQURL = "amqp://Denzel:Desz117s@18.211.110.229:5672/"
+	queueName   = "queue"
+	apiURL      = "http://localhost:8001/pedidos/log"
+)
+
 func main() {
-	// Conectar a RabbitMQ
-	conn, err := amqp.Dial("amqp://Denzel:Desz117s@18.211.110.229:5672/")
+	conn, err := amqp.Dial(rabbitMQURL)
 	if err != nil {
 		log.Fatalf("Error conectando a RabbitMQ: %s", err)
 	}
 	defer conn.Close()
 
-	// Abrir un canal
 	ch, err := conn.Channel()
 	if err != nil {
 		log.Fatalf("Error creando canal: %s", err)
 	}
 	defer ch.Close()
 
-	// Declarar la cola (asegurarnos de que existe)
-	queueName := "queue"
 	q, err := ch.QueueDeclare(
 		queueName,
-		true,  // Durable
-		false, // Auto-delete
-		false, // Exclusive
-		false, // No-wait
-		nil,   // Arguments
+		true,
+		false,
+		false,
+		false,
+		nil,
 	)
 	if err != nil {
 		log.Fatalf("Error declarando la cola: %s", err)
 	}
 
-	// Consumir mensajes de la cola
 	msgs, err := ch.Consume(
-		q.Name,     // Nombre de la cola
-		"consumer", // Nombre del consumidor
-		true,       // Auto-Acknowledge
-		false,      // Exclusive
-		false,      // No-local
-		false,      // No-wait
-		nil,        // Args
+		q.Name,
+		"consumer",
+		true,
+		false,
+		false,
+		false,
+		nil,
 	)
 	if err != nil {
 		log.Fatalf("Error al consumir mensajes: %s", err)
 	}
 
-	// Canal para manejar los mensajes
 	forever := make(chan bool)
 
 	go func() {
 		for msg := range msgs {
-			fmt.Printf("📥 Mensaje recibido: %s\n", msg.Body)
+			var pedido map[string]interface{}
+
+			err := json.Unmarshal(msg.Body, &pedido)
+			if err != nil {
+				log.Printf("❌ Error deserializando mensaje: %s\n", err)
+				continue
+			}
+
+			prettyJSON, _ := json.MarshalIndent(pedido, "", "  ")
+			fmt.Println("📩 Pedido recibido desde RabbitMQ:")
+			fmt.Println(string(prettyJSON))
+			fmt.Println("----------------------------")
+
+			sendToAPI(pedido)
 		}
 	}()
 
-	fmt.Println("🐰 Esperando mensajes. Presiona CTRL+C para salir...")
-	<-forever // Mantiene el programa corriendo
+	fmt.Println("🐇 Esperando mensajes de la cola. Presiona CTRL+C para salir...")
+	<-forever
+}
+
+func sendToAPI(data map[string]interface{}) {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		log.Printf("❌ Error serializando JSON para la API: %s\n", err)
+		return
+	}
+
+	resp, err := http.Post(apiURL, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		log.Printf("❌ Error enviando datos a la API: %s\n", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		log.Println("✅ Pedido enviado y recibido correctamente en la API2")
+	} else {
+		log.Printf("⚠️ Respuesta inesperada de la API2. Código: %d\n", resp.StatusCode)
+	}
 }
