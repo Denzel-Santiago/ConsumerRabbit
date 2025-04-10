@@ -13,7 +13,7 @@ import (
 const (
 	rabbitMQURL = "amqp://Denzel:Desz117s@18.211.110.229:5672/"
 	queueName   = "queue"
-	apiURL      = "http://localhost:8001/pedidos/log"
+	apiURL      = "http://3.86.136.69:8001/pedidos/log"
 )
 
 func main() {
